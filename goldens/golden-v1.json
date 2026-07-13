@@ -1,0 +1,7 @@
+[
+    { "timestamp": "2026-07-10T12:00:01Z", "level": "INFO", "user": "alice", "action": "login", "duration": 42 },
+    { "timestamp": "2026-07-10T12:00:09Z", "level": "INFO", "user": "bob", "action": "upload", "duration": 310 },
+    { "timestamp": "2026-07-10T12:00:12Z", "level": "WARN", "user": "alice", "action": "retry", "duration": 88 },
+    { "timestamp": "2026-07-10T12:00:21Z", "level": "INFO", "user": "carol", "action": "logout", "duration": 12 },
+    { "timestamp": "2026-07-10T12:00:30Z", "level": "ERROR", "user": "bob", "action": "upload", "duration": 5000 }
+]
