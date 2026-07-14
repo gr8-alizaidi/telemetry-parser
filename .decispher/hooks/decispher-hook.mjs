@@ -8,6 +8,7 @@
  *   session-start | user-prompt | post-tool | stop | session-end
  *   cursor-after-edit | cursor-before-shell | cursor-stop   (Cursor hooks.json)
  *   codex-session-start | codex-user-prompt | codex-post-tool | codex-stop   (.codex/hooks.json)
+ *   grok-session-start | grok-user-prompt | grok-post-tool | grok-stop | grok-session-end   (.grok/hooks/decispher.json)
  *   post-checkout <prev> <next> <flag>
  *   statusline
  *
@@ -1001,6 +1002,136 @@ export async function handleCodexStop(ctx, input) {
     await flushBuffer(ctx);
 }
 
+// ── Grok Build hooks (.grok/hooks/decispher.json) ────────────────────────────
+// Grok's hook contract is Claude-shaped in structure but differs in detail:
+//  - Payload fields are camelCase (sessionId/toolName/toolInput) and tool
+//    events carry Grok's internal tool names (run_terminal_cmd,
+//    search_replace). normalizeGrokInput maps the payload onto the
+//    snake_case fields the shared handlers read.
+//  - Passive-event stdout is IGNORED (only PreToolUse can answer), so there
+//    is no SessionStart briefing injection and no PostToolUse déjà vu
+//    injection — the briefing arrives via store_read (AGENTS.md instructs
+//    it) and edit-check warnings land on the branch store, like Cursor.
+//  - Grok ALSO reads .claude/settings.json and .cursor/hooks.json hooks and
+//    sets GROK_HOOK_EVENT on every hook process. main() uses that to keep a
+//    Grok session single-captured: when this repo carries our dedicated
+//    grok hooks file the compat invocations exit; without it they run
+//    re-tagged agent='grok' so a claude-/cursor-only repo still captures.
+
+export function isGrokHookProcess(env = process.env) {
+    return typeof env.GROK_HOOK_EVENT === 'string' && env.GROK_HOOK_EVENT.length > 0;
+}
+
+export function hasGrokHooksFile(root) {
+    return fs.existsSync(path.join(root, '.grok', 'hooks', 'decispher.json'));
+}
+
+/**
+ * Maps a Grok payload onto the snake_case fields the shared handlers read.
+ * Additive — camelCase originals stay, existing snake_case fields win, so
+ * normalizing a payload that is already Claude-shaped is a no-op.
+ */
+export function normalizeGrokInput(input) {
+    const out = { ...input };
+    if (out.session_id === undefined && typeof out.sessionId === 'string') out.session_id = out.sessionId;
+    if (out.cwd === undefined && typeof out.workspaceRoot === 'string') out.cwd = out.workspaceRoot;
+    if (out.tool_name === undefined && typeof out.toolName === 'string') out.tool_name = out.toolName;
+    if (out.tool_input === undefined && out.toolInput !== undefined) out.tool_input = out.toolInput;
+    if (out.tool_response === undefined && out.toolResponse !== undefined) out.tool_response = out.toolResponse;
+    if (out.tool_use_id === undefined && typeof out.toolUseId === 'string') out.tool_use_id = out.toolUseId;
+    return out;
+}
+
+const GROK_SHELL_TOOLS = ['run_terminal_cmd', 'Bash', 'bash', 'shell'];
+const GROK_EDIT_TOOLS = ['search_replace', 'Edit', 'edit_file', 'MultiEdit'];
+const GROK_WRITE_TOOLS = ['write_file', 'create_file', 'Write'];
+
+function firstString(obj, keys) {
+    for (const key of keys) {
+        if (typeof obj[key] === 'string' && obj[key]) return obj[key];
+    }
+    return '';
+}
+
+export async function handleGrokPostTool(ctx, input) {
+    if (isCapturePaused()) return;
+    const sessionId = input.session_id ?? 'unknown-session';
+    const toolName = input.tool_name ?? '';
+    const toolInput = input.tool_input ?? {};
+    const baseId = input.tool_use_id ?? hashId(sessionId, toolName, JSON.stringify(toolInput));
+    const events = [];
+
+    if (GROK_SHELL_TOOLS.includes(toolName)) {
+        const rawCommand = Array.isArray(toolInput.command)
+            ? toolInput.command.map(String).join(' ')
+            : String(toolInput.command ?? '');
+        if (!rawCommand.trim()) return;
+        events.push(buildEvent(ctx, 'terminal_command', input.cwd, {
+            sessionId,
+            toolUseId: `bash:${baseId}`,
+            terminal: {
+                command: redactText(rawCommand),
+                output: redactText(truncate(toolOutputText(input.tool_response), MAX_TERMINAL_OUTPUT_CHARS)),
+            },
+        }));
+    } else if (GROK_EDIT_TOOLS.includes(toolName) || GROK_WRITE_TOOLS.includes(toolName)) {
+        // Field names are tolerant across Grok versions — the docs pin the
+        // envelope (toolName/toolInput) but not the per-tool input schema.
+        const filePath = firstString(toolInput, ['file_path', 'filePath', 'path', 'target_file']);
+        if (!filePath) return;
+        const oldStr = firstString(toolInput, ['old_string', 'oldString', 'old_str']);
+        const newStr = GROK_WRITE_TOOLS.includes(toolName)
+            ? firstString(toolInput, ['content', 'contents', 'file_text', 'text'])
+            : firstString(toolInput, ['new_string', 'newString', 'new_str', 'replacement']);
+        if (!oldStr && !newStr) {
+            // Evidence floor: the edit happened even when this Grok version
+            // does not expose the change content through the hook payload.
+            events.push(buildEvent(ctx, 'file_edit', input.cwd, {
+                sessionId,
+                toolUseId: `edit:${baseId}`,
+                body: `Edited ${filePath} (content not exposed by the Grok hook payload)`,
+            }));
+        } else {
+            events.push(...stageEditPairs(ctx, sessionId, input.cwd, filePath, [[oldStr, newStr]], `edit:${baseId}`));
+        }
+    } else {
+        return;
+    }
+
+    const flushed = await enqueueEvents(ctx, events);
+
+    // SR-S8 déjà vu / drift — Grok ignores passive-event stdout, so no
+    // additionalContext round-trip; the warning still lands on the branch
+    // store (timeline + receipt), the same serving contract as Cursor.
+    const edit = events.filter((e) => e.kind === 'file_edit' && e.diff).pop();
+    if (edit && flushed?.remaining === 0) {
+        await checkEditForWarnings(ctx, sessionId, input.cwd, edit.diff.filePath, edit.diff.content);
+    }
+}
+
+/**
+ * Grok Stop fires at turn end (SessionEnd covers the session boundary).
+ * Stage a reasoning snippet when the payload exposes the final assistant
+ * message under the Codex-style field, then flush — tolerant: absent field
+ * just means flush-only.
+ */
+export async function handleGrokStop(ctx, input) {
+    const events = [];
+    if (!isCapturePaused() && typeof input.last_assistant_message === 'string') {
+        const sessionId = input.session_id ?? 'unknown-session';
+        const tail = extractMessageTail(input.last_assistant_message);
+        if (tail) {
+            events.push(buildEvent(ctx, 'reasoning', input.cwd, {
+                sessionId,
+                toolUseId: `reasoning:${hashId(sessionId, tail)}`,
+                reasoning: redactText(tail),
+            }));
+        }
+    }
+    await enqueueEvents(ctx, events);
+    await flushBuffer(ctx);
+}
+
 export async function handlePostCheckout(ctx, argv) {
     const [prevRef = '', nextRef = '', flag = ''] = argv;
     if (flag !== '1') return; // file checkout, not a branch switch
@@ -1040,18 +1171,33 @@ const CURSOR_ALLOW = JSON.stringify({ permission: 'allow' });
 /** Returns the text to print on stdout (hook JSON or statusline), or null. */
 async function main() {
     const [subcommand, ...rest] = process.argv.slice(2);
-    const input = subcommand === 'post-checkout' ? {} : await readStdinJson();
+    let input = subcommand === 'post-checkout' ? {} : await readStdinJson();
     const isCursor = subcommand?.startsWith('cursor-') ?? false;
     const isCodex = subcommand?.startsWith('codex-') ?? false;
+    const isGrok = subcommand?.startsWith('grok-') ?? false;
+    // GROK_HOOK_EVENT marks every hook process Grok spawns — including the
+    // ones it fires through the Claude/Cursor hook files it also reads. The
+    // runtime, not the invoking config file, decides the attribution.
+    const grokSession = isGrokHookProcess();
+    if (grokSession || isGrok) input = normalizeGrokInput(input);
     const startDir = isCursor
         ? (input.cwd ?? (Array.isArray(input.workspace_roots) ? input.workspace_roots[0] : undefined) ?? process.cwd())
         : (input.cwd ?? process.cwd());
-    const ctx = createContext(startDir, isCursor ? { agent: 'cursor' } : isCodex ? { agent: 'codex' } : {});
+    const agent = (isGrok || grokSession) ? 'grok' : isCursor ? 'cursor' : isCodex ? 'codex' : null;
+    const ctx = createContext(startDir, agent ? { agent } : {});
 
     if (subcommand === 'statusline') {
         return ctx
             ? handleStatusline(ctx, input)
             : '\x1b[2m○ decispher · run npx decispher init\x1b[0m';
+    }
+    // Double-capture guard: under a Grok session the dedicated grok-* entries
+    // own capture whenever this repo carries our .grok hooks file — the
+    // compat invocations (Claude/Cursor/Codex files, also read by Grok) exit.
+    // Without the file (repo wired for another agent only) the compat
+    // invocation proceeds, already re-tagged agent='grok' above.
+    if (grokSession && !isGrok && subcommand !== 'post-checkout' && ctx && hasGrokHooksFile(ctx.root)) {
+        return null;
     }
     if (subcommand === 'cursor-before-shell') {
         // This hook gates the user's shell command — answer allow no matter
@@ -1068,6 +1214,9 @@ async function main() {
         }
         case 'user-prompt': await handleUserPrompt(ctx, input); return null;
         case 'post-tool': {
+            // A Grok session reaching the Claude entry (no dedicated grok
+            // wiring) carries Grok tool names — route to the Grok handler.
+            if (grokSession) { await handleGrokPostTool(ctx, input); return null; }
             const out = await handlePostTool(ctx, input);
             return out ? JSON.stringify(out) : null;
         }
@@ -1087,6 +1236,18 @@ async function main() {
             return out ? JSON.stringify(out) : null;
         }
         case 'codex-stop': await handleCodexStop(ctx, input); return null;
+        // Grok payloads are normalized above. SessionStart reuses the Claude
+        // handler for the session boundary + project-cache refresh; its
+        // briefing JSON is returned but Grok ignores passive-event stdout —
+        // the briefing reaches Grok via store_read (AGENTS.md instructs it).
+        case 'grok-session-start': {
+            const out = await handleSessionStart(ctx, input);
+            return out ? JSON.stringify(out) : null;
+        }
+        case 'grok-user-prompt': await handleUserPrompt(ctx, input); return null;
+        case 'grok-post-tool': await handleGrokPostTool(ctx, input); return null;
+        case 'grok-stop': await handleGrokStop(ctx, input); return null;
+        case 'grok-session-end': await handleSessionEnd(ctx, input); return null;
         case 'post-checkout': await handlePostCheckout(ctx, rest); return null;
         default: return null;
     }
