@@ -24,11 +24,13 @@ constraints. Skipping it risks violating active rules.
 
 ## Always apply
 
-_No always-apply rules yet — fetch via MCP when working on a topic._
+- **Adopt goldens/golden-v2.json as telemetry-parser gold standard to retain null-user events** (CRITICAL) — Adopt `goldens/golden-v2.json` as the new gold standard for `telemetry-parser` going forward, deprecating `golden-v1.json`. All future changes to `src/parser.js` or `scripts/compare.js` must validate against v2 only, which keeps system…
 
 ## When working on a topic
 
-_No topics yet — call `decispher.list_topics()` to discover at runtime._
+Fetch the full topic context before writing code:
+
+- **c/decispher-demo-mri2fy8z/gold-standard** (Gold Standard) → `decispher.get_context_for_topic({ topic: "c/decispher-demo-mri2fy8z/gold-standard" })`
 
 ## Decispher MCP tools
 
