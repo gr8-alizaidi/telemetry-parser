@@ -10,6 +10,10 @@
 # Do NOT write code before completing the above steps.
 # BEFORE YOU STOP: decispher.store_write (handoff) + decispher.session_record for non-obvious decisions.
 
+- **Adopt goldens/golden-v2.json as telemetry-parser gold standard to retain null-user events** (CRITICAL) — Adopt `goldens/golden-v2.json` as the new gold standard for `telemetry-parser` going forward, deprecating `golden-v1.json`. All future changes to `src/parser.js` or `scripts/compare.js` must validate against v2 only, which keeps system…
+
+# Topics — load on demand:
+- c/decispher-demo-mri2fy8z/gold-standard (Gold Standard) -> decispher.get_context_for_topic({ topic: "c/decispher-demo-mri2fy8z/gold-standard" })
 
 # Decispher MCP tools
 # Call proactively when relevant (agent-invoked):

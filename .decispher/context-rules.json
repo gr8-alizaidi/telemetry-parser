@@ -1,13 +1,13 @@
 {
   "$schema": "https://decispher.com/schemas/context-rules/v1.json",
   "specVersion": "2.0.0",
-  "generatedAt": "2026-07-13T19:11:38.986Z",
+  "generatedAt": "2026-07-14T05:46:50.282Z",
   "companyId": "8122ee9b-d712-4e6a-8fc2-1cbc6783de16",
   "projectId": "2f4df19a-e6f6-4180-827a-567ae493e910",
   "meta": {
-    "totalRules": 0,
+    "totalRules": 1,
     "rulesByType": {
-      "decision": 0,
+      "decision": 1,
       "convention": 0,
       "constraint": 0,
       "rationale": 0,
@@ -16,7 +16,7 @@
       "plan": 0
     },
     "rulesBySeverity": {
-      "CRITICAL": 0,
+      "CRITICAL": 1,
       "HIGH": 0,
       "MEDIUM": 0,
       "LOW": 0
@@ -31,5 +31,37 @@
       "listTopics": "decispher.list_topics()"
     }
   },
-  "rules": []
+  "rules": [
+    {
+      "id": "8c7a724f-3cea-4300-9a35-d11ae0481b0e",
+      "type": "decision",
+      "title": "Adopt goldens/golden-v2.json as telemetry-parser gold standard to retain null-user events",
+      "severity": "CRITICAL",
+      "status": "active",
+      "affectedFiles": [
+        "goldens/golden-v2.json",
+        "golden-v1.json",
+        "src/parser.js",
+        "scripts/compare.js"
+      ],
+      "tags": [
+        "telemetry",
+        "parser",
+        "analytics"
+      ],
+      "supersededBy": null,
+      "enforcement": {
+        "blockOnViolation": false,
+        "requiresExplicitOverride": false,
+        "filePatterns": [
+          "goldens/golden-v2.json",
+          "golden-v1.json",
+          "src/parser.js",
+          "scripts/compare.js"
+        ],
+        "exemptPatterns": []
+      },
+      "mcpFetch": "decispher.get_decision({ decisionId: \"8c7a724f-3cea-4300-9a35-d11ae0481b0e\" })"
+    }
+  ]
 }
