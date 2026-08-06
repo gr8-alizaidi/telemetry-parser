@@ -5,7 +5,7 @@
  *
  *   node scripts/compare.js [path/to/golden.json]
  *
- * Defaults to goldens/golden-v1.json.
+ * Defaults to goldens/golden-v2.json.
  */
 
 const fs = require('node:fs');
@@ -13,7 +13,7 @@ const path = require('node:path');
 const { parse } = require('../src/parser');
 
 const root = path.join(__dirname, '..');
-const goldenPath = process.argv[2] ?? path.join(root, 'goldens', 'golden-v1.json');
+const goldenPath = process.argv[2] ?? path.join(root, 'goldens', 'golden-v2.json');
 const inputPath = path.join(root, 'sample-input', 'logs.txt');
 
 const golden = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
