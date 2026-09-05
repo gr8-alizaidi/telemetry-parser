@@ -1,6 +1,6 @@
 {
   "schema": "decispher-context-map/v1",
-  "generatedAt": "2026-08-06T14:33:24.502Z",
+  "generatedAt": "2026-09-05T23:42:40.645Z",
   "project": {
     "id": "2f4df19a-e6f6-4180-827a-567ae493e910",
     "name": "Telemetry Demo"
@@ -39,6 +39,7 @@
       "decispher.list_topics",
       "decispher.search_decisions",
       "decispher.get_decision",
+      "decispher.get_related_context",
       "decispher.ask_knowledge_base",
       "decispher.capture_decision",
       "decispher.update_context_metadata",
@@ -47,8 +48,11 @@
       "decispher.session_record",
       "decispher.store_link",
       "decispher.store_list",
+      "decispher.remember",
+      "decispher.get_memory",
       "decispher.copy_chat",
-      "decispher.paste_chat"
+      "decispher.paste_chat",
+      "decispher.list_clips"
     ]
   }
 }
