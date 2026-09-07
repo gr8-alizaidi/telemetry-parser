@@ -33,7 +33,7 @@ function parseLine(line) {
         level,
         user: fields.user,
         action: fields.action,
-        duration: fields.duration,
+        duration: fields.duration ? Number.parseInt(fields.duration, 10) : undefined,
     };
 }
 
