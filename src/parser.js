@@ -8,6 +8,20 @@
  */
 
 const LINE_RE = /^(\S+)\s+(INFO|WARN|ERROR)\s+(.*)$/;
+const DURATION_RE = /^(\d+(?:\.\d+)?)(ms|s)$/;
+
+/**
+ * All durations normalize to integer milliseconds at the parse boundary.
+ * Upstream Go services emit seconds ("1.2s") while Node services emit
+ * milliseconds ("42ms"); mixing units downstream skewed p95 dashboards.
+ */
+function normalizeDuration(raw) {
+    if (raw == null) return null;
+    const m = DURATION_RE.exec(raw);
+    if (!m) return null;
+    const value = Number(m[1]);
+    return Math.round(m[2] === 's' ? value * 1000 : value);
+}
 
 function parseFields(rest) {
     const fields = {};
@@ -33,7 +47,7 @@ function parseLine(line) {
         level,
         user: fields.user,
         action: fields.action,
-        duration: fields.duration,
+        duration: normalizeDuration(fields.duration),
     };
 }
 
