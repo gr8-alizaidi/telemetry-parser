@@ -25,15 +25,12 @@ function parseLine(line) {
     const [, timestamp, level, rest] = m;
     const fields = parseFields(rest);
 
-    // Events without a user are system noise — drop them.
-    if (!fields.user) return null;
-
     return {
         timestamp,
         level,
-        user: fields.user,
+        user: fields.user ?? null,
         action: fields.action,
-        duration: fields.duration,
+        duration: parseInt(fields.duration, 10),
     };
 }
 
